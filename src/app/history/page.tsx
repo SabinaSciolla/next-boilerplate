@@ -4,6 +4,9 @@ import { getAllRatings } from '@/app/actions';
 import { RatingList } from '@/components/RatingList';
 import { DeviceFilter } from '@/components/DeviceFilter';
 
+// Force dynamic rendering to avoid build-time data fetching
+export const dynamic = 'force-dynamic';
+
 export default async function HistoryPage({
   searchParams,
 }: {
