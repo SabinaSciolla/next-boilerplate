@@ -1,36 +1,113 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ADHD medicin-symptom tracker (Next.js + Supabase)
 
-## Getting Started
+Let brugere registrere dagens dosis og symptomer/bivirkninger for et specifikt ADHD-medicinapparat. Projektet kører på Next.js, gemmer data i Supabase, og kan udvides med open.fda download API til medicinopslag.
 
-First, run the development server:
+## Funktioner
+- Se og registrer dagens rating: medicinapparat-navn/id, dosis, dato/tid samt noter om symptomer/bivirkninger.
+- Oversigt over generelle bivirkninger/symptomer (statisk eller hentet fra open.fda).
+- Historikvisning af tidligere registreringer.
+- Ingen login-krav som udgangspunkt, men Supabase auth kan aktiveres senere.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Tech stack
+- Next.js (App Router), TypeScript.
+- Supabase (Postgres + Row Level Security).
+- UI efter behov (Tailwind/vanilla CSS) – vælg frit; ingen bundet styling endnu.
+
+## Datamodel (Supabase)
+Foreslået tabel `symptom_ratings`:
+- `id` (uuid, primary key, default `gen_random_uuid()`)
+- `device_id` (text) – medicinapparat-id
+- `device_name` (text) – medicinapparat-navn
+- `dose` (text) – fri tekst for dosis
+- `rating_date` (timestamptz) – dato/tid for registrering
+- `symptoms` (text) – noter/observationsfelter
+- `side_effects` (text) – noter/observationsfelter
+- `created_at` (timestamptz, default `now()`)
+
+Hvis du senere vil koble til brugerlogin, tilføj en `user_id` (uuid) referencer til `auth.users` og slå RLS + policies til (se nedenfor).
+
+### SQL til hurtig opsætning
+```sql
+create table if not exists public.symptom_ratings (
+  id uuid primary key default gen_random_uuid(),
+  device_id text not null,
+  device_name text not null,
+  dose text,
+  rating_date timestamptz not null default now(),
+  symptoms text,
+  side_effects text,
+  created_at timestamptz not null default now()
+);
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Valgfri auth-kolonne og simple policies (tilføj hvis login ønskes):
+```sql
+alter table public.symptom_ratings add column if not exists user_id uuid references auth.users(id);
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+alter table public.symptom_ratings enable row level security;
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+create policy "Users can see own ratings"
+  on public.symptom_ratings for select
+  using (auth.uid() = user_id);
 
-## Learn More
+create policy "Users can insert own ratings"
+  on public.symptom_ratings for insert
+  with check (auth.uid() = user_id);
 
-To learn more about Next.js, take a look at the following resources:
+create policy "Users can update own ratings"
+  on public.symptom_ratings for update
+  using (auth.uid() = user_id);
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## open.fda download API
+- Bruges til at hente feltdefinitioner/bivirkninger for medicin, hvis du vil supplere UI’et med referenceinfo.
+- Startpunkt: https://open.fda.gov/apis/download-api-fields/.
+- Typisk flow: hent feltlisten eller relevante felter for medicin, map til opslagsliste, og vis i UI’et som “kendte bivirkninger”.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Miljøvariabler
+Opret `.env.local`:
+```
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE=your-service-role-key  # kun hvis server-actions skal skrive uden brugerlogin
+```
 
-## Deploy on Vercel
+## Udvikling lokalt
+```bash
+npm install
+npm run dev
+# app kører på http://localhost:3000
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Anbefalet mappestruktur (App Router)
+- `src/app/page.tsx`: vis dagens rating, formular for ny registrering, liste over generelle bivirkninger/symptomer.
+- `src/app/history/page.tsx`: historik med filtrering pr. apparat.
+- `src/lib/supabase/client.ts`: Supabase browser-klient (anon).
+- `src/lib/supabase/server.ts`: server-klient (service role) hvis nødvendigt.
+- `src/types/index.ts`: typer for `SymptomRating`.
+- `src/components/*`: formular, lister, kort/graf, etc.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Basis-flow (uden login)
+1) Hent generelle bivirkninger (statisk eller via open.fda).  
+2) Vis dagens registrering (hent seneste `rating_date` for valgt apparat).  
+3) Formular til at gemme ny registrering (`device_id/name`, dosis, dato/tid, symptomer, side_effects).  
+4) Historikliste + sortering/filtrering.
+
+## Scripts
+- `npm run dev` – lokal udvikling.
+- `npm run lint` – kør ESLint.
+
+## Setup
+
+Følg guiden i [SETUP.md](SETUP.md) for at sætte Supabase op og komme i gang med projektet.
+
+Kort version:
+1. Opret Supabase projekt på [supabase.com](https://supabase.com)
+2. Kør SQL scriptet fra `supabase-setup.sql` i Supabase SQL Editor
+3. Opret `.env.local` med Supabase credentials (se `SETUP.md` for detaljer)
+4. Kør `npm install` og `npm run dev`
+
+## Næste skridt
+- Tilføj UI-komponenter og Supabase-kald (client components eller server actions).
+- Beslut om open.fda-data skal caches i Supabase eller hentes on-demand.
+- Aktiver login + RLS hvis du får brug for bruger-specifik historik.***
